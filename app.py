@@ -55,6 +55,9 @@ def processar():
         if not edificio_nome:
             edificio_nome = "EDIFICIO"
 
+        pavimentos.sort(key=lambda p: [int(c) if c.isdigit() else c.lower()
+                                        for c in re.split(r"(\d+)", p["nome"])])
+
         nome_base = re.sub(r'[<>:"/\\|?*]', "_", edificio_nome)
         output_dir = os.path.join(tmpdir, "output")
 
