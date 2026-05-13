@@ -117,6 +117,36 @@
       min-height: 20px;
     }
 
+    .field {
+      margin-top: 20px;
+      text-align: left;
+    }
+
+    .field label {
+      display: block;
+      font-size: 0.85rem;
+      font-weight: 600;
+      color: #555;
+      margin-bottom: 6px;
+    }
+
+    .field input[type="text"] {
+      width: 100%;
+      padding: 10px 14px;
+      border: 1.5px solid #E67E22;
+      border-radius: 8px;
+      font-size: 0.95rem;
+      color: #1C1C1C;
+      background: #FEF9F5;
+      outline: none;
+      transition: border-color 0.2s;
+    }
+
+    .field input[type="text"]:focus {
+      border-color: #C0390B;
+      background: #fff;
+    }
+
     .btn {
       margin-top: 28px;
       width: 100%;
@@ -175,16 +205,21 @@
 <main>
   <div class="card">
     <h1>Extrator de Quantitativos</h1>
-    <p>Carregue um ficheiro <strong>.lst</strong> gerado pelo TQS e receba automaticamente o relatório em <strong>PDF</strong> e o ficheiro <strong>DXF</strong>.</p>
+    <p>Carregue os ficheiros <strong>.lst</strong> gerados pelo TQS (um por pavimento) e receba automaticamente o relatório em <strong>PDF</strong> e o ficheiro <strong>DXF</strong>.</p>
 
     <div class="drop-zone" id="dropZone">
-      <input type="file" id="fileInput" accept=".lst,.LST" />
+      <input type="file" id="fileInput" accept=".lst,.LST" multiple />
       <div class="icon">📄</div>
-      <div class="label">Clique ou arraste o ficheiro aqui</div>
-      <div class="sublabel">Apenas ficheiros .lst / .LST</div>
+      <div class="label">Clique ou arraste os ficheiros aqui</div>
+      <div class="sublabel">Ficheiros .lst / .LST — um por pavimento</div>
     </div>
 
     <div class="file-name" id="fileName"></div>
+
+    <div class="field">
+      <label for="edificioInput">Nome do Edifício</label>
+      <input type="text" id="edificioInput" placeholder="Ex: EDIFÍCIO CENTRAL" />
+    </div>
 
     <button class="btn" id="btnProcessar" disabled>Processar e Descarregar</button>
 
@@ -196,48 +231,55 @@
 <footer>Estruturar Engenharia &mdash; Uso interno</footer>
 
 <script>
-  const dropZone  = document.getElementById("dropZone");
-  const fileInput = document.getElementById("fileInput");
-  const fileName  = document.getElementById("fileName");
-  const btn       = document.getElementById("btnProcessar");
-  const status    = document.getElementById("status");
-  const spinner   = document.getElementById("spinner");
+  const dropZone      = document.getElementById("dropZone");
+  const fileInput     = document.getElementById("fileInput");
+  const fileName      = document.getElementById("fileName");
+  const edificioInput = document.getElementById("edificioInput");
+  const btn           = document.getElementById("btnProcessar");
+  const status        = document.getElementById("status");
+  const spinner       = document.getElementById("spinner");
 
-  let selectedFile = null;
+  let selectedFiles = [];
 
-  function setFile(file) {
-    if (!file || !file.name.toLowerCase().endsWith(".lst")) {
-      status.textContent = "Por favor selecione um ficheiro .lst";
+  function setFiles(files) {
+    const valid = Array.from(files).filter(f => f.name.toLowerCase().endsWith(".lst"));
+    if (valid.length === 0) {
+      status.textContent = "Por favor selecione pelo menos um ficheiro .lst";
       status.className = "status error";
       return;
     }
-    selectedFile = file;
-    fileName.textContent = `Ficheiro selecionado: ${file.name}`;
+    selectedFiles = valid;
+    fileName.textContent = valid.length === 1
+      ? `Ficheiro: ${valid[0].name}`
+      : `${valid.length} ficheiros: ${valid.map(f => f.name).join(", ")}`;
     btn.disabled = false;
     status.textContent = "";
     status.className = "status";
   }
 
-  fileInput.addEventListener("change", () => setFile(fileInput.files[0]));
+  fileInput.addEventListener("change", () => setFiles(fileInput.files));
 
   dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("over"); });
   dropZone.addEventListener("dragleave", ()  => dropZone.classList.remove("over"));
   dropZone.addEventListener("drop", (e) => {
     e.preventDefault();
     dropZone.classList.remove("over");
-    setFile(e.dataTransfer.files[0]);
+    setFiles(e.dataTransfer.files);
   });
 
   btn.addEventListener("click", async () => {
-    if (!selectedFile) return;
+    if (selectedFiles.length === 0) return;
 
-    btn.disabled   = true;
+    btn.disabled = true;
     status.textContent = "";
     status.className   = "status";
     spinner.style.display = "block";
 
     const form = new FormData();
-    form.append("ficheiro", selectedFile);
+    for (const f of selectedFiles) {
+      form.append("ficheiro", f);
+    }
+    form.append("edificio", edificioInput.value.trim());
 
     try {
       const res = await fetch("/processar", { method: "POST", body: form });
@@ -251,7 +293,8 @@
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement("a");
       a.href     = url;
-      a.download = selectedFile.name.replace(/\.lst$/i, ".zip");
+      const nome = edificioInput.value.trim() || selectedFiles[0].name.replace(/\.lst$/i, "");
+      a.download = `${nome}.zip`;
       a.click();
       URL.revokeObjectURL(url);
 

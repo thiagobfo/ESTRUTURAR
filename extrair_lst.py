@@ -1,7 +1,7 @@
 """
 Extrator de dados de relatório TQS - ficheiro .lst
 Extrai: cabeçalho, quantitativos (vigas/pilares/lajes), avisos e lajes nervuradas.
-Exporta os resultados para ficheiros CSV na pasta ./output/
+Exporta os resultados para PDF e DXF na pasta ./output/
 """
 
 import os
@@ -167,133 +167,40 @@ def extrair_lajes_nervuradas(linhas: list[str]) -> list[dict]:
 
 
 # ---------------------------------------------------------------------------
-# Totais por tipo de elemento
+# Totais por pavimento
 # ---------------------------------------------------------------------------
 
-def calcular_totais(quant: dict) -> list[dict]:
-    """Soma vol_concreto_m3 e area_formas_m2 por tipo de elemento."""
-    totais = []
-    mapa = [
-        ("VIGA",  quant["vigas"]),
-        ("LAJE",  quant["lajes"]),
-        ("PILAR", quant["pilares"]),
-    ]
-    total_concreto = 0.0
-    total_formas   = 0.0
-    for nome, lista in mapa:
-        concreto = sum(e["vol_concreto_m3"] for e in lista)
-        formas   = sum(e["area_formas_m2"]  for e in lista)
-        totais.append({"elemento": nome, "concreto_m3": concreto, "formas_m2": formas})
-        total_concreto += concreto
-        total_formas   += formas
-    totais.append({"elemento": "TOTAL", "concreto_m3": total_concreto, "formas_m2": total_formas})
-    return totais
+def _totais_quant(quant: dict) -> dict:
+    """Returns per-type and total concrete/forms sums for one pavimento's quantitativos."""
+    v_c = sum(e["vol_concreto_m3"] for e in quant["vigas"])
+    v_f = sum(e["area_formas_m2"]  for e in quant["vigas"])
+    p_c = sum(e["vol_concreto_m3"] for e in quant["pilares"])
+    p_f = sum(e["area_formas_m2"]  for e in quant["pilares"])
+    l_c = sum(e["vol_concreto_m3"] for e in quant["lajes"])
+    l_f = sum(e["area_formas_m2"]  for e in quant["lajes"])
+    return {
+        "vigas":   {"concreto": v_c, "formas": v_f},
+        "pilares": {"concreto": p_c, "formas": p_f},
+        "lajes":   {"concreto": l_c, "formas": l_f},
+        "total":   {"concreto": v_c + p_c + l_c, "formas": v_f + p_f + l_f},
+    }
 
 
 # ---------------------------------------------------------------------------
 # Exportação DXF
 # ---------------------------------------------------------------------------
 
-# Configurações visuais
-_ALT_TEXTO   = 2.0   # altura do texto (mm / unidades DXF)
-_ALT_TITULO  = 3.0   # altura do título de cada tabela
-_ALT_LINHA   = 7.0   # altura de cada linha da tabela
-_ESP_COL     = 3.0   # espaçamento interno horizontal por célula
+_ALT_TEXTO   = 2.0
+_ALT_TITULO  = 3.0
+_ALT_LINHA   = 7.0
+_ESP_COL     = 3.0
 _COR_HEADER  = 3     # verde
 _COR_TITULO  = 5     # azul
-_COR_BORDER  = 7     # branco / preto
+_COR_BORDER  = 7
 _COR_TEXTO   = 7
-
-# Configurações da tabela-resumo
-_ALT_LINHA_RESUMO  = 20.0
-_ALT_TEXTO_RESUMO  = 5.5
-_LARG_COL_RESUMO   = [70.0, 90.0, 85.0]   # Elementos | Concreto | Formas
-
-
-def _desenhar_tabela_resumo(
-    msp,
-    titulo: str,
-    linhas_dados: list[list[str]],
-    x0: float,
-    y0: float,
-) -> float:
-    """
-    Tabela de resumo com células altas, texto centrado e sem fundo.
-    Última linha (TOTAL) é destacada em negrito via texto maior.
-    """
-    cabecalhos = ["ELEMENTOS", "CONCRETO (m3)", "FORMAS (m2)"]
-    larguras   = _LARG_COL_RESUMO
-    largura_total = sum(larguras)
-    y = y0
-
-    # Título
-    msp.add_text(
-        titulo,
-        dxfattribs={"insert": (x0, y - _ALT_TITULO), "height": _ALT_TITULO + 1,
-                    "color": _COR_TITULO, "layer": "TITULOS"},
-    )
-    y -= _ALT_TITULO + 4
-
-    def _celula_centrada(texto, cx, cy, altura, layer, cor=7):
-        # Largura estimada por caracter ≈ 0.65 * altura (fonte DXF padrão)
-        x_start = cx - len(texto) * altura * 0.325
-        y_start = cy - altura * 0.35  # baseline abaixo do centro vertical
-        msp.add_text(
-            texto,
-            dxfattribs={
-                "insert": (x_start, y_start),
-                "height": altura,
-                "color": cor,
-                "layer": layer,
-            },
-        )
-
-    def _linha_h(yy):
-        msp.add_line((x0, yy), (x0 + largura_total, yy),
-                     dxfattribs={"color": _COR_BORDER, "layer": "BORDAS"})
-
-    # Borda superior
-    _linha_h(y)
-
-    # Cabeçalho
-    x = x0
-    for i, cab in enumerate(cabecalhos):
-        cx = x + larguras[i] / 2
-        cy = y - _ALT_LINHA_RESUMO / 2
-        _celula_centrada(cab, cx, cy, _ALT_TEXTO_RESUMO, "HEADER_TEXTO", cor=3)
-        x += larguras[i]
-    y -= _ALT_LINHA_RESUMO
-    _linha_h(y)
-
-    # Linhas de dados
-    for linha in linhas_dados:
-        is_total = linha[0].upper() == "TOTAL"
-        alt = _ALT_TEXTO_RESUMO * 1.15 if is_total else _ALT_TEXTO_RESUMO
-        cor = 5 if is_total else _COR_TEXTO
-        x = x0
-        for i, cel in enumerate(linha):
-            cx = x + larguras[i] / 2
-            cy = y - _ALT_LINHA_RESUMO / 2
-            _celula_centrada(cel, cx, cy, alt, "DADOS", cor=cor)
-            x += larguras[i]
-        y -= _ALT_LINHA_RESUMO
-        _linha_h(y)
-
-    # Bordas verticais
-    y_topo = y0 - _ALT_TITULO - 4
-    x = x0
-    for larg in larguras:
-        msp.add_line((x, y_topo), (x, y),
-                     dxfattribs={"color": _COR_BORDER, "layer": "BORDAS"})
-        x += larg
-    msp.add_line((x, y_topo), (x, y),
-                 dxfattribs={"color": _COR_BORDER, "layer": "BORDAS"})
-
-    return y - 20
 
 
 def _largura_colunas(cabecalhos: list[str], linhas_dados: list[list[str]]) -> list[float]:
-    """Calcula a largura de cada coluna com base no conteúdo."""
     larguras = [len(h) * _ALT_TEXTO * 0.7 + _ESP_COL * 2 for h in cabecalhos]
     for linha in linhas_dados:
         for i, cel in enumerate(linha):
@@ -311,15 +218,10 @@ def _desenhar_tabela(
     x0: float,
     y0: float,
 ) -> float:
-    """
-    Desenha uma tabela em DXF a partir de (x0, y0) — canto superior esquerdo.
-    Devolve a coordenada Y do fim da tabela (para encadear tabelas).
-    """
     larguras = _largura_colunas(cabecalhos, linhas_dados)
     largura_total = sum(larguras)
     y = y0
 
-    # --- Título ---
     msp.add_text(
         titulo,
         dxfattribs={
@@ -331,10 +233,8 @@ def _desenhar_tabela(
     )
     y -= _ALT_TITULO + 2
 
-    # --- Cabeçalho ---
     x = x0
     for i, cab in enumerate(cabecalhos):
-        # fundo do cabeçalho (hachura via sólido)
         msp.add_solid(
             [
                 (x, y),
@@ -349,27 +249,25 @@ def _desenhar_tabela(
             dxfattribs={
                 "insert": (x + _ESP_COL, y - _ALT_LINHA + (_ALT_LINHA - _ALT_TEXTO) / 2),
                 "height": _ALT_TEXTO,
-                "color": 0,  # preto sobre fundo verde
+                "color": 0,
                 "layer": "HEADER_TEXTO",
             },
         )
         x += larguras[i]
-    # borda inferior do cabeçalho
     msp.add_line((x0, y - _ALT_LINHA), (x0 + largura_total, y - _ALT_LINHA),
                  dxfattribs={"color": _COR_BORDER, "layer": "BORDAS"})
     y -= _ALT_LINHA
 
-    # --- Linhas de dados ---
     for idx_linha, linha in enumerate(linhas_dados):
-        cor_fundo = 9 if idx_linha % 2 == 0 else 255  # alternância cinza / branco
+        is_total = str(linha[0]).upper() == "TOTAL"
         x = x0
         for i, cel in enumerate(linha):
             msp.add_text(
                 cel,
                 dxfattribs={
                     "insert": (x + _ESP_COL, y - _ALT_LINHA + (_ALT_LINHA - _ALT_TEXTO) / 2),
-                    "height": _ALT_TEXTO,
-                    "color": _COR_TEXTO,
+                    "height": _ALT_TEXTO * (1.1 if is_total else 1.0),
+                    "color": _COR_TITULO if is_total else _COR_TEXTO,
                     "layer": "DADOS",
                 },
             )
@@ -378,7 +276,6 @@ def _desenhar_tabela(
                      dxfattribs={"color": _COR_BORDER, "layer": "BORDAS"})
         y -= _ALT_LINHA
 
-    # --- Bordas verticais ---
     x = x0
     y_topo = y0 - _ALT_TITULO - 2
     for larg in larguras:
@@ -387,21 +284,19 @@ def _desenhar_tabela(
         x += larg
     msp.add_line((x, y_topo), (x, y),
                  dxfattribs={"color": _COR_BORDER, "layer": "BORDAS"})
-    # borda superior
     msp.add_line((x0, y_topo), (x0 + largura_total, y_topo),
                  dxfattribs={"color": _COR_BORDER, "layer": "BORDAS"})
 
-    return y - 15  # espaço entre tabelas
+    return y - 15
 
 
-def exportar_dxf(dados: dict, pasta_saida: str, nome_base: str = "relatorio"):
+def exportar_dxf(pavimentos: list[dict], edificio_nome: str, pasta_saida: str, nome_base: str = "relatorio"):
     os.makedirs(pasta_saida, exist_ok=True)
 
     doc = ezdxf.new(dxfversion="R2010")
-    doc.header["$INSUNITS"] = 4  # milímetros
+    doc.header["$INSUNITS"] = 4
     msp = doc.modelspace()
 
-    # Camadas
     for layer, cor in [
         ("TITULOS", _COR_TITULO),
         ("HEADER_BG", _COR_HEADER),
@@ -413,44 +308,67 @@ def exportar_dxf(dados: dict, pasta_saida: str, nome_base: str = "relatorio"):
 
     y_cursor = 0.0
 
-    # ---- Cabeçalho do relatório ----
-    cab = dados["cabecalho"]
-    for chave, valor in cab.items():
-        msp.add_text(
-            f"{chave.replace('_', ' ').upper()}: {valor}",
-            dxfattribs={"insert": (0, y_cursor), "height": _ALT_TITULO, "color": _COR_TITULO, "layer": "TITULOS"},
-        )
-        y_cursor -= _ALT_TITULO + 2
-    y_cursor -= 10
+    msp.add_text(
+        f"EDIFICIO: {edificio_nome}",
+        dxfattribs={"insert": (0, y_cursor), "height": _ALT_TITULO + 1, "color": _COR_TITULO, "layer": "TITULOS"},
+    )
+    y_cursor -= _ALT_TITULO + 10
 
-    # ---- Tabela de Resumo (totais por tipo) ----
-    totais = calcular_totais(dados["quantitativos"])
-    linhas_resumo = [
-        [t["elemento"], f"{t['concreto_m3']:.2f}", f"{t['formas_m2']:.2f}"]
-        for t in totais
+    # Build multi-pavimento summary table
+    cabecalhos = [
+        "PAVIMENTO",
+        "VIGA Conc.(m3)", "VIGA Form.(m2)",
+        "PILAR Conc.(m3)", "PILAR Form.(m2)",
+        "LAJE Conc.(m3)", "LAJE Form.(m2)",
+        "TOTAL Conc.(m3)", "TOTAL Form.(m2)",
     ]
-    y_cursor = _desenhar_tabela_resumo(msp, "RESUMO DE QUANTITATIVOS", linhas_resumo, 0, y_cursor)
+
+    linhas_dados = []
+    acc = {"vc": 0.0, "vf": 0.0, "pc": 0.0, "pf": 0.0, "lc": 0.0, "lf": 0.0}
+
+    for pav in pavimentos:
+        t = _totais_quant(pav["quantitativos"])
+        acc["vc"] += t["vigas"]["concreto"];   acc["vf"] += t["vigas"]["formas"]
+        acc["pc"] += t["pilares"]["concreto"]; acc["pf"] += t["pilares"]["formas"]
+        acc["lc"] += t["lajes"]["concreto"];   acc["lf"] += t["lajes"]["formas"]
+        linhas_dados.append([
+            pav["nome"],
+            f"{t['vigas']['concreto']:.2f}",   f"{t['vigas']['formas']:.2f}",
+            f"{t['pilares']['concreto']:.2f}", f"{t['pilares']['formas']:.2f}",
+            f"{t['lajes']['concreto']:.2f}",   f"{t['lajes']['formas']:.2f}",
+            f"{t['total']['concreto']:.2f}",   f"{t['total']['formas']:.2f}",
+        ])
+
+    tc = acc["vc"] + acc["pc"] + acc["lc"]
+    tf = acc["vf"] + acc["pf"] + acc["lf"]
+    linhas_dados.append([
+        "TOTAL",
+        f"{acc['vc']:.2f}", f"{acc['vf']:.2f}",
+        f"{acc['pc']:.2f}", f"{acc['pf']:.2f}",
+        f"{acc['lc']:.2f}", f"{acc['lf']:.2f}",
+        f"{tc:.2f}", f"{tf:.2f}",
+    ])
+
+    _desenhar_tabela(msp, "RESUMO DE QUANTITATIVOS", cabecalhos, linhas_dados, 0, y_cursor)
 
     caminho = os.path.join(pasta_saida, f"{nome_base}.dxf")
     doc.saveas(caminho)
     print(f"  -> {caminho}")
 
 
-
 # ---------------------------------------------------------------------------
 # Exportação PDF
 # ---------------------------------------------------------------------------
 
-def exportar_pdf(dados: dict, pasta_saida: str, nome_base: str = "relatorio"):
+def exportar_pdf(pavimentos: list[dict], edificio_nome: str, pasta_saida: str, nome_base: str = "relatorio"):
     os.makedirs(pasta_saida, exist_ok=True)
     caminho = os.path.join(pasta_saida, f"{nome_base}.pdf")
 
-    # Cores Estruturar
-    COR_LARANJA_ESCURO  = colors.HexColor("#C0390B")  # laranja escuro do logo
-    COR_LARANJA_MEDIO   = colors.HexColor("#E67E22")  # laranja médio
-    COR_LARANJA_CLARO   = colors.HexColor("#FAD7A0")  # laranja claro (linha TOTAL)
-    COR_CINZA_LINHA     = colors.HexColor("#FEF9F5")  # fundo alternado quase branco
-    COR_TEXTO_ESCURO    = colors.HexColor("#1C1C1C")
+    COR_LARANJA_ESCURO = colors.HexColor("#C0390B")
+    COR_LARANJA_MEDIO  = colors.HexColor("#E67E22")
+    COR_LARANJA_CLARO  = colors.HexColor("#FAD7A0")
+    COR_CINZA_LINHA    = colors.HexColor("#FEF9F5")
+    COR_TEXTO_ESCURO   = colors.HexColor("#1C1C1C")
 
     doc = SimpleDocTemplate(
         caminho,
@@ -464,42 +382,45 @@ def exportar_pdf(dados: dict, pasta_saida: str, nome_base: str = "relatorio"):
     styles = getSampleStyleSheet()
     estilo_info = ParagraphStyle(
         "info", parent=styles["Normal"],
-        fontSize=9, textColor=COR_TEXTO_ESCURO, leading=13,
-        alignment=TA_LEFT,
+        fontSize=9, textColor=COR_TEXTO_ESCURO, leading=13, alignment=TA_LEFT,
     )
     estilo_titulo_tabela = ParagraphStyle(
         "titulo_tab", parent=styles["Heading2"],
         fontSize=13, textColor=COR_LARANJA_ESCURO,
-        fontName="Helvetica-Bold", spaceAfter=3 * mm,
-        alignment=TA_LEFT,
+        fontName="Helvetica-Bold", spaceAfter=3 * mm, alignment=TA_LEFT,
+    )
+    estilo_header = ParagraphStyle(
+        "header_cell", parent=styles["Normal"],
+        fontSize=7, textColor=colors.white, fontName="Helvetica-Bold",
+        alignment=TA_CENTER, leading=9,
+    )
+    estilo_dados = ParagraphStyle(
+        "dados_cell", parent=styles["Normal"],
+        fontSize=8, textColor=COR_TEXTO_ESCURO, fontName="Helvetica",
+        alignment=TA_CENTER, leading=10,
+    )
+    estilo_total = ParagraphStyle(
+        "total_cell", parent=styles["Normal"],
+        fontSize=8, textColor=COR_LARANJA_ESCURO, fontName="Helvetica-Bold",
+        alignment=TA_CENTER, leading=10,
     )
 
     story = []
 
-    # ---- Logo + cabeçalho lado a lado ----
+    # Header with logo
     logo_path = os.path.join(os.path.dirname(__file__), "logo.png")
-    cab = dados["cabecalho"]
-    linhas_cab = [
-        f"<b>PAVIMENTO:</b> {cab.get('pavimento', '')}",
-        f"<b>EDIFÍCIO:</b> {cab.get('titulo_geral', '')}",
-    ]
-    col_cab = [[Paragraph(l, estilo_info)] for l in linhas_cab]
-    tabela_info_data = [[cel[0]] for cel in col_cab]
+    linhas_cab = [f"<b>EDIFÍCIO:</b> {edificio_nome}"]
 
     if os.path.exists(logo_path):
         logo_img = Image(logo_path, width=40 * mm, height=40 * mm, kind="proportional")
-        cabecalho_data = [[
-            [Paragraph(l, estilo_info) for l in linhas_cab],
-            logo_img,
-        ]]
+        cabecalho_data = [[[Paragraph(l, estilo_info) for l in linhas_cab], logo_img]]
         tabela_cab = Table(cabecalho_data, colWidths=[125 * mm, 45 * mm])
         tabela_cab.setStyle(TableStyle([
-            ("VALIGN",        (0, 0), (-1, -1), "MIDDLE"),
-            ("ALIGN",         (1, 0), (1, 0),   "RIGHT"),
-            ("RIGHTPADDING",  (1, 0), (1, 0),   0),
+            ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+            ("ALIGN",        (1, 0), (1, 0),   "RIGHT"),
+            ("RIGHTPADDING", (1, 0), (1, 0),   0),
         ]))
     else:
-        # Sem logo: só texto
         tabela_cab = Table(
             [[Paragraph(l, estilo_info)] for l in linhas_cab],
             colWidths=[170 * mm],
@@ -509,53 +430,88 @@ def exportar_pdf(dados: dict, pasta_saida: str, nome_base: str = "relatorio"):
     story.append(HRFlowable(width="100%", thickness=2, color=COR_LARANJA_ESCURO,
                              spaceAfter=6 * mm, spaceBefore=4 * mm))
 
-    # ---- Tabela de resumo ----
-    totais = calcular_totais(dados["quantitativos"])
+    # Multi-pavimento summary table
+    # 9 cols: PAVIMENTO | VIGA C | VIGA F | PILAR C | PILAR F | LAJE C | LAJE F | TOT C | TOT F
+    col_w = [32 * mm] + [17.25 * mm] * 8  # 32 + 138 = 170mm
 
-    col_w = [60 * mm, 55 * mm, 55 * mm]
-    tabela_dados = [["ELEMENTOS", "CONCRETO (m³)", "FORMAS (m²)"]]
-    for t in totais:
+    H = estilo_header
+    D = estilo_dados
+    T = estilo_total
+
+    header_row0 = [
+        Paragraph("PAVIMENTO", H),
+        Paragraph("VIGAS", H), "",
+        Paragraph("PILARES", H), "",
+        Paragraph("LAJES", H), "",
+        Paragraph("TOTAL", H), "",
+    ]
+    header_row1 = [
+        "",
+        Paragraph("Conc.<br/>(m³)", H), Paragraph("Form.<br/>(m²)", H),
+        Paragraph("Conc.<br/>(m³)", H), Paragraph("Form.<br/>(m²)", H),
+        Paragraph("Conc.<br/>(m³)", H), Paragraph("Form.<br/>(m²)", H),
+        Paragraph("Conc.<br/>(m³)", H), Paragraph("Form.<br/>(m²)", H),
+    ]
+
+    tabela_dados = [header_row0, header_row1]
+
+    acc = {"vc": 0.0, "vf": 0.0, "pc": 0.0, "pf": 0.0, "lc": 0.0, "lf": 0.0}
+
+    for pav in pavimentos:
+        t = _totais_quant(pav["quantitativos"])
+        acc["vc"] += t["vigas"]["concreto"];   acc["vf"] += t["vigas"]["formas"]
+        acc["pc"] += t["pilares"]["concreto"]; acc["pf"] += t["pilares"]["formas"]
+        acc["lc"] += t["lajes"]["concreto"];   acc["lf"] += t["lajes"]["formas"]
         tabela_dados.append([
-            t["elemento"],
-            f"{t['concreto_m3']:.2f}",
-            f"{t['formas_m2']:.2f}",
+            Paragraph(pav["nome"], D),
+            Paragraph(f"{t['vigas']['concreto']:.2f}", D),   Paragraph(f"{t['vigas']['formas']:.2f}", D),
+            Paragraph(f"{t['pilares']['concreto']:.2f}", D), Paragraph(f"{t['pilares']['formas']:.2f}", D),
+            Paragraph(f"{t['lajes']['concreto']:.2f}", D),   Paragraph(f"{t['lajes']['formas']:.2f}", D),
+            Paragraph(f"{t['total']['concreto']:.2f}", D),   Paragraph(f"{t['total']['formas']:.2f}", D),
         ])
 
-    n_linhas = len(tabela_dados)
+    tc = acc["vc"] + acc["pc"] + acc["lc"]
+    tf = acc["vf"] + acc["pf"] + acc["lf"]
+    tabela_dados.append([
+        Paragraph("TOTAL", T),
+        Paragraph(f"{acc['vc']:.2f}", T), Paragraph(f"{acc['vf']:.2f}", T),
+        Paragraph(f"{acc['pc']:.2f}", T), Paragraph(f"{acc['pf']:.2f}", T),
+        Paragraph(f"{acc['lc']:.2f}", T), Paragraph(f"{acc['lf']:.2f}", T),
+        Paragraph(f"{tc:.2f}", T),        Paragraph(f"{tf:.2f}", T),
+    ])
+
+    n_linhas  = len(tabela_dados)
     idx_total = n_linhas - 1
 
-    # Fundo alternado nas linhas de dados (exceto TOTAL)
     row_bg = []
-    for i in range(1, idx_total):
+    for i in range(2, idx_total):
         bg = COR_CINZA_LINHA if i % 2 == 0 else colors.white
         row_bg.append(("BACKGROUND", (0, i), (-1, i), bg))
 
     estilo_tabela = TableStyle([
-        # Cabeçalho
-        ("BACKGROUND",    (0, 0), (-1, 0),          COR_LARANJA_ESCURO),
-        ("TEXTCOLOR",     (0, 0), (-1, 0),          colors.white),
-        ("FONTNAME",      (0, 0), (-1, 0),          "Helvetica-Bold"),
-        ("FONTSIZE",      (0, 0), (-1, 0),          11),
-        ("ALIGN",         (0, 0), (-1, -1),         "CENTER"),
-        ("VALIGN",        (0, 0), (-1, -1),         "MIDDLE"),
-        # Dados
-        ("FONTNAME",      (0, 1), (-1, idx_total - 1), "Helvetica"),
-        ("FONTSIZE",      (0, 1), (-1, idx_total - 1), 10),
-        ("TEXTCOLOR",     (0, 1), (-1, idx_total - 1), COR_TEXTO_ESCURO),
-        # Linha TOTAL
-        ("BACKGROUND",    (0, idx_total), (-1, idx_total), COR_LARANJA_CLARO),
-        ("FONTNAME",      (0, idx_total), (-1, idx_total), "Helvetica-Bold"),
-        ("FONTSIZE",      (0, idx_total), (-1, idx_total), 11),
-        ("TEXTCOLOR",     (0, idx_total), (-1, idx_total), COR_LARANJA_ESCURO),
-        # Grelha
-        ("GRID",          (0, 0), (-1, -1),         0.5, COR_LARANJA_MEDIO),
-        ("LINEBELOW",     (0, 0), (-1, 0),          1.5, COR_LARANJA_ESCURO),
-        ("TOPPADDING",    (0, 0), (-1, -1),         7),
-        ("BOTTOMPADDING", (0, 0), (-1, -1),         7),
+        # Spans: PAVIMENTO spans rows 0-1; each type group spans 2 cols in row 0
+        ("SPAN", (0, 0), (0, 1)),
+        ("SPAN", (1, 0), (2, 0)),
+        ("SPAN", (3, 0), (4, 0)),
+        ("SPAN", (5, 0), (6, 0)),
+        ("SPAN", (7, 0), (8, 0)),
+        # Header
+        ("BACKGROUND", (0, 0), (-1, 1),          COR_LARANJA_ESCURO),
+        ("VALIGN",     (0, 0), (-1, 1),          "MIDDLE"),
+        # Data
+        ("ALIGN",      (0, 2), (-1, -1),         "CENTER"),
+        ("VALIGN",     (0, 2), (-1, -1),         "MIDDLE"),
+        # Total row
+        ("BACKGROUND", (0, idx_total), (-1, idx_total), COR_LARANJA_CLARO),
+        # Grid
+        ("GRID",         (0, 0), (-1, -1), 0.5, COR_LARANJA_MEDIO),
+        ("LINEBELOW",    (0, 1), (-1, 1),  1.5, COR_LARANJA_ESCURO),
+        ("TOPPADDING",   (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 4),
         *row_bg,
     ])
 
-    tabela = Table(tabela_dados, colWidths=col_w, repeatRows=1)
+    tabela = Table(tabela_dados, colWidths=col_w, repeatRows=2)
     tabela.setStyle(estilo_tabela)
 
     story.append(Paragraph("RESUMO DE QUANTITATIVOS", estilo_titulo_tabela))
@@ -583,10 +539,13 @@ def main():
     print(f"A processar: {caminho_lst}\n")
     linhas = carregar_ficheiro(caminho_lst)
 
-    cabecalho         = extrair_cabecalho(linhas)
-    quant             = extrair_quantitativos(linhas)
-    avisos            = extrair_avisos(linhas)
-    lajes_nervuradas  = extrair_lajes_nervuradas(linhas)
+    cabecalho = extrair_cabecalho(linhas)
+    quant     = extrair_quantitativos(linhas)
+
+    edificio_nome  = cabecalho.get("titulo_geral") or cabecalho.get("edificio") or "EDIFICIO"
+    pavimento_nome = cabecalho.get("pavimento") or os.path.splitext(os.path.basename(caminho_lst))[0]
+
+    pavimentos = [{"nome": pavimento_nome, "quantitativos": quant}]
 
     print("Cabeçalho:")
     for k, v in cabecalho.items():
@@ -596,21 +555,12 @@ def main():
     print(f"  Vigas:   {len(quant['vigas'])} elementos")
     print(f"  Pilares: {len(quant['pilares'])} elementos")
     print(f"  Lajes:   {len(quant['lajes'])} elementos")
-    print(f"\nLajes nervuradas: {len(lajes_nervuradas)} registos")
-    print(f"Avisos:           {len(avisos)}")
-
-    dados = {
-        "cabecalho":        cabecalho,
-        "quantitativos":    quant,
-        "avisos":           avisos,
-        "lajes_nervuradas": lajes_nervuradas,
-    }
 
     pasta_saida = os.path.join(os.path.dirname(__file__), "output")
-    nome_base = os.path.splitext(os.path.basename(caminho_lst))[0]
+    nome_base   = os.path.splitext(os.path.basename(caminho_lst))[0]
     print(f"\nA exportar para: {pasta_saida}/")
-    exportar_dxf(dados, pasta_saida, nome_base)
-    exportar_pdf(dados, pasta_saida, nome_base)
+    exportar_dxf(pavimentos, edificio_nome, pasta_saida, nome_base)
+    exportar_pdf(pavimentos, edificio_nome, pasta_saida, nome_base)
     print("\nConcluído.")
 
 
