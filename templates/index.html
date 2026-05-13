@@ -1,0 +1,270 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>Estruturar — Extrator TQS</title>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+      background: #FEF9F5;
+      color: #1C1C1C;
+      min-height: 100vh;
+      display: flex;
+      flex-direction: column;
+    }
+
+    header {
+      background: #C0390B;
+      padding: 18px 40px;
+      display: flex;
+      align-items: center;
+      gap: 16px;
+    }
+
+    header img {
+      height: 40px;
+      filter: brightness(0) invert(1);
+    }
+
+    header span {
+      color: #fff;
+      font-size: 1.2rem;
+      font-weight: 600;
+      letter-spacing: 0.03em;
+    }
+
+    main {
+      flex: 1;
+      display: flex;
+      flex-direction: column;
+      align-items: center;
+      justify-content: center;
+      padding: 60px 20px;
+    }
+
+    .card {
+      background: #fff;
+      border-radius: 12px;
+      box-shadow: 0 4px 24px rgba(192, 57, 11, 0.10);
+      padding: 48px 52px;
+      max-width: 520px;
+      width: 100%;
+      text-align: center;
+    }
+
+    .card h1 {
+      font-size: 1.5rem;
+      color: #C0390B;
+      margin-bottom: 8px;
+    }
+
+    .card p {
+      font-size: 0.95rem;
+      color: #555;
+      margin-bottom: 32px;
+      line-height: 1.6;
+    }
+
+    .drop-zone {
+      border: 2px dashed #E67E22;
+      border-radius: 10px;
+      padding: 40px 24px;
+      cursor: pointer;
+      transition: background 0.2s, border-color 0.2s;
+      position: relative;
+    }
+
+    .drop-zone:hover,
+    .drop-zone.over {
+      background: #FEF3EC;
+      border-color: #C0390B;
+    }
+
+    .drop-zone input[type="file"] {
+      position: absolute;
+      inset: 0;
+      opacity: 0;
+      cursor: pointer;
+      width: 100%;
+      height: 100%;
+    }
+
+    .drop-zone .icon {
+      font-size: 2.5rem;
+      margin-bottom: 12px;
+    }
+
+    .drop-zone .label {
+      font-size: 1rem;
+      color: #C0390B;
+      font-weight: 600;
+    }
+
+    .drop-zone .sublabel {
+      font-size: 0.85rem;
+      color: #999;
+      margin-top: 4px;
+    }
+
+    .file-name {
+      margin-top: 14px;
+      font-size: 0.9rem;
+      color: #444;
+      min-height: 20px;
+    }
+
+    .btn {
+      margin-top: 28px;
+      width: 100%;
+      padding: 14px;
+      background: #C0390B;
+      color: #fff;
+      border: none;
+      border-radius: 8px;
+      font-size: 1rem;
+      font-weight: 600;
+      cursor: pointer;
+      transition: background 0.2s;
+      letter-spacing: 0.02em;
+    }
+
+    .btn:hover:not(:disabled) { background: #a33009; }
+    .btn:disabled { background: #e8a58a; cursor: not-allowed; }
+
+    .status {
+      margin-top: 20px;
+      min-height: 24px;
+      font-size: 0.9rem;
+    }
+
+    .status.error  { color: #c0390b; font-weight: 600; }
+    .status.ok     { color: #27ae60; font-weight: 600; }
+
+    .spinner {
+      display: none;
+      margin: 0 auto;
+      width: 22px;
+      height: 22px;
+      border: 3px solid #FAD7A0;
+      border-top-color: #C0390B;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+    }
+
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    footer {
+      text-align: center;
+      padding: 20px;
+      font-size: 0.8rem;
+      color: #aaa;
+    }
+  </style>
+</head>
+<body>
+
+<header>
+  <img src="/static/ESTRUTURAR_BRANCA-1.png" alt="Estruturar" onerror="this.style.display='none'" />
+  <span>Extrator de Relatório TQS</span>
+</header>
+
+<main>
+  <div class="card">
+    <h1>Extrator de Quantitativos</h1>
+    <p>Carregue um ficheiro <strong>.lst</strong> gerado pelo TQS e receba automaticamente o relatório em <strong>PDF</strong> e o ficheiro <strong>DXF</strong>.</p>
+
+    <div class="drop-zone" id="dropZone">
+      <input type="file" id="fileInput" accept=".lst" />
+      <div class="icon">📄</div>
+      <div class="label">Clique ou arraste o ficheiro aqui</div>
+      <div class="sublabel">Apenas ficheiros .lst</div>
+    </div>
+
+    <div class="file-name" id="fileName"></div>
+
+    <button class="btn" id="btnProcessar" disabled>Processar e Descarregar</button>
+
+    <div class="status" id="status"></div>
+    <div class="spinner" id="spinner"></div>
+  </div>
+</main>
+
+<footer>Estruturar Engenharia &mdash; Uso interno</footer>
+
+<script>
+  const dropZone  = document.getElementById("dropZone");
+  const fileInput = document.getElementById("fileInput");
+  const fileName  = document.getElementById("fileName");
+  const btn       = document.getElementById("btnProcessar");
+  const status    = document.getElementById("status");
+  const spinner   = document.getElementById("spinner");
+
+  let selectedFile = null;
+
+  function setFile(file) {
+    if (!file || !file.name.toLowerCase().endsWith(".lst")) {
+      status.textContent = "Por favor selecione um ficheiro .lst";
+      status.className = "status error";
+      return;
+    }
+    selectedFile = file;
+    fileName.textContent = `Ficheiro selecionado: ${file.name}`;
+    btn.disabled = false;
+    status.textContent = "";
+    status.className = "status";
+  }
+
+  fileInput.addEventListener("change", () => setFile(fileInput.files[0]));
+
+  dropZone.addEventListener("dragover", (e) => { e.preventDefault(); dropZone.classList.add("over"); });
+  dropZone.addEventListener("dragleave", ()  => dropZone.classList.remove("over"));
+  dropZone.addEventListener("drop", (e) => {
+    e.preventDefault();
+    dropZone.classList.remove("over");
+    setFile(e.dataTransfer.files[0]);
+  });
+
+  btn.addEventListener("click", async () => {
+    if (!selectedFile) return;
+
+    btn.disabled   = true;
+    status.textContent = "";
+    status.className   = "status";
+    spinner.style.display = "block";
+
+    const form = new FormData();
+    form.append("ficheiro", selectedFile);
+
+    try {
+      const res = await fetch("/processar", { method: "POST", body: form });
+
+      if (!res.ok) {
+        const data = await res.json().catch(() => ({}));
+        throw new Error(data.erro || `Erro ${res.status}`);
+      }
+
+      const blob = await res.blob();
+      const url  = URL.createObjectURL(blob);
+      const a    = document.createElement("a");
+      a.href     = url;
+      a.download = selectedFile.name.replace(".lst", ".zip");
+      a.click();
+      URL.revokeObjectURL(url);
+
+      status.textContent = "Ficheiros gerados com sucesso!";
+      status.className   = "status ok";
+    } catch (err) {
+      status.textContent = err.message;
+      status.className   = "status error";
+    } finally {
+      spinner.style.display = "none";
+      btn.disabled = false;
+    }
+  });
+</script>
+
+</body>
+</html>
