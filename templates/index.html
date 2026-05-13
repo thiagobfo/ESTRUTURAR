@@ -178,10 +178,10 @@
     <p>Carregue um ficheiro <strong>.lst</strong> gerado pelo TQS e receba automaticamente o relatório em <strong>PDF</strong> e o ficheiro <strong>DXF</strong>.</p>
 
     <div class="drop-zone" id="dropZone">
-      <input type="file" id="fileInput" accept=".lst" />
+      <input type="file" id="fileInput" accept=".lst,.LST" />
       <div class="icon">📄</div>
       <div class="label">Clique ou arraste o ficheiro aqui</div>
-      <div class="sublabel">Apenas ficheiros .lst</div>
+      <div class="sublabel">Apenas ficheiros .lst / .LST</div>
     </div>
 
     <div class="file-name" id="fileName"></div>
@@ -251,7 +251,7 @@
       const url  = URL.createObjectURL(blob);
       const a    = document.createElement("a");
       a.href     = url;
-      a.download = selectedFile.name.replace(".lst", ".zip");
+      a.download = selectedFile.name.replace(/\.lst$/i, ".zip");
       a.click();
       URL.revokeObjectURL(url);
 
