@@ -208,10 +208,10 @@ _COR_TEXTO   = 7
 
 
 def _largura_colunas(cabecalhos: list[str], linhas_dados: list[list[str]]) -> list[float]:
-    larguras = [len(h) * _ALT_TEXTO * 0.85 + _ESP_COL * 2 for h in cabecalhos]
+    larguras = [len(h) * _ALT_TEXTO * 1.1 + _ESP_COL * 2 for h in cabecalhos]
     for linha in linhas_dados:
         for i, cel in enumerate(linha):
-            w = len(cel) * _ALT_TEXTO * 0.85 + _ESP_COL * 2
+            w = len(cel) * _ALT_TEXTO * 1.1 + _ESP_COL * 2
             if w > larguras[i]:
                 larguras[i] = w
     return larguras
@@ -235,7 +235,7 @@ def _desenhar_tabela(
             "insert": (x0, y - _ALT_TITULO),
             "height": _ALT_TITULO,
             "color": _COR_TITULO,
-            "layer": "TITULOS",
+            "layer": "8",
         },
     )
     y -= _ALT_TITULO + 2
@@ -249,7 +249,7 @@ def _desenhar_tabela(
                 (x, y - _ALT_LINHA),
                 (x + larguras[i], y - _ALT_LINHA),
             ],
-            dxfattribs={"color": _COR_HEADER, "layer": "HEADER_BG"},
+            dxfattribs={"color": _COR_HEADER, "layer": "3"},
         )
         msp.add_text(
             cab,
@@ -257,12 +257,12 @@ def _desenhar_tabela(
                 "insert": (x + _ESP_COL, y - _ALT_LINHA + (_ALT_LINHA - _ALT_TEXTO) / 2),
                 "height": _ALT_TEXTO,
                 "color": 0,
-                "layer": "HEADER_TEXTO",
+                "layer": "8",
             },
         )
         x += larguras[i]
     msp.add_line((x0, y - _ALT_LINHA), (x0 + largura_total, y - _ALT_LINHA),
-                 dxfattribs={"color": _COR_BORDER, "layer": "BORDAS"})
+                 dxfattribs={"color": _COR_BORDER, "layer": "3"})
     y -= _ALT_LINHA
 
     for idx_linha, linha in enumerate(linhas_dados):
@@ -275,24 +275,24 @@ def _desenhar_tabela(
                     "insert": (x + _ESP_COL, y - _ALT_LINHA + (_ALT_LINHA - _ALT_TEXTO) / 2),
                     "height": _ALT_TEXTO * (1.1 if is_total else 1.0),
                     "color": _COR_TITULO if is_total else _COR_TEXTO,
-                    "layer": "DADOS",
+                    "layer": "8",
                 },
             )
             x += larguras[i]
         msp.add_line((x0, y - _ALT_LINHA), (x0 + largura_total, y - _ALT_LINHA),
-                     dxfattribs={"color": _COR_BORDER, "layer": "BORDAS"})
+                     dxfattribs={"color": _COR_BORDER, "layer": "3"})
         y -= _ALT_LINHA
 
     x = x0
     y_topo = y0 - _ALT_TITULO - 2
     for larg in larguras:
         msp.add_line((x, y_topo), (x, y),
-                     dxfattribs={"color": _COR_BORDER, "layer": "BORDAS"})
+                     dxfattribs={"color": _COR_BORDER, "layer": "3"})
         x += larg
     msp.add_line((x, y_topo), (x, y),
-                 dxfattribs={"color": _COR_BORDER, "layer": "BORDAS"})
+                 dxfattribs={"color": _COR_BORDER, "layer": "3"})
     msp.add_line((x0, y_topo), (x0 + largura_total, y_topo),
-                 dxfattribs={"color": _COR_BORDER, "layer": "BORDAS"})
+                 dxfattribs={"color": _COR_BORDER, "layer": "3"})
 
     return y - 15
 
@@ -305,11 +305,8 @@ def exportar_dxf(pavimentos: list[dict], edificio_nome: str, pasta_saida: str, n
     msp = doc.modelspace()
 
     for layer, cor in [
-        ("TITULOS", _COR_TITULO),
-        ("HEADER_BG", _COR_HEADER),
-        ("HEADER_TEXTO", 7),
-        ("BORDAS", _COR_BORDER),
-        ("DADOS", 7),
+        ("8", 7),
+        ("3", 3),
     ]:
         doc.layers.add(layer, color=cor)
 
@@ -317,7 +314,7 @@ def exportar_dxf(pavimentos: list[dict], edificio_nome: str, pasta_saida: str, n
 
     msp.add_text(
         f"EDIFICIO: {edificio_nome}",
-        dxfattribs={"insert": (0, y_cursor), "height": _ALT_TITULO + 1, "color": _COR_TITULO, "layer": "TITULOS"},
+        dxfattribs={"insert": (0, y_cursor), "height": _ALT_TITULO + 1, "color": _COR_TITULO, "layer": "8"},
     )
     y_cursor -= _ALT_TITULO + 10
 
