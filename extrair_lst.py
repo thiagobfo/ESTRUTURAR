@@ -314,42 +314,17 @@ def exportar_dxf(pavimentos: list[dict], edificio_nome: str, pasta_saida: str, n
     )
     y_cursor -= _ALT_TITULO + 10
 
-    # Build multi-pavimento summary table
-    cabecalhos = [
-        "PAVIMENTO",
-        "VIGA Conc.(m3)", "VIGA Form.(m2)",
-        "PILAR Conc.(m3)", "PILAR Form.(m2)",
-        "LAJE Conc.(m3)", "LAJE Form.(m2)",
-        "TOTAL Conc.(m3)", "TOTAL Form.(m2)",
-    ]
-
-    linhas_dados = []
-    acc = {"vc": 0.0, "vf": 0.0, "pc": 0.0, "pf": 0.0, "lc": 0.0, "lf": 0.0}
+    cabecalhos = ["ELEMENTO", "Concreto (m3)", "Formas (m2)"]
 
     for pav in pavimentos:
         t = _totais_quant(pav["quantitativos"])
-        acc["vc"] += t["vigas"]["concreto"];   acc["vf"] += t["vigas"]["formas"]
-        acc["pc"] += t["pilares"]["concreto"]; acc["pf"] += t["pilares"]["formas"]
-        acc["lc"] += t["lajes"]["concreto"];   acc["lf"] += t["lajes"]["formas"]
-        linhas_dados.append([
-            pav["nome"],
-            f"{t['vigas']['concreto']:.2f}",   f"{t['vigas']['formas']:.2f}",
-            f"{t['pilares']['concreto']:.2f}", f"{t['pilares']['formas']:.2f}",
-            f"{t['lajes']['concreto']:.2f}",   f"{t['lajes']['formas']:.2f}",
-            f"{t['total']['concreto']:.2f}",   f"{t['total']['formas']:.2f}",
-        ])
-
-    tc = acc["vc"] + acc["pc"] + acc["lc"]
-    tf = acc["vf"] + acc["pf"] + acc["lf"]
-    linhas_dados.append([
-        "TOTAL",
-        f"{acc['vc']:.2f}", f"{acc['vf']:.2f}",
-        f"{acc['pc']:.2f}", f"{acc['pf']:.2f}",
-        f"{acc['lc']:.2f}", f"{acc['lf']:.2f}",
-        f"{tc:.2f}", f"{tf:.2f}",
-    ])
-
-    _desenhar_tabela(msp, "RESUMO DE QUANTITATIVOS", cabecalhos, linhas_dados, 0, y_cursor)
+        linhas_dados = [
+            ["VIGAS",   f"{t['vigas']['concreto']:.2f}",   f"{t['vigas']['formas']:.2f}"],
+            ["PILARES", f"{t['pilares']['concreto']:.2f}", f"{t['pilares']['formas']:.2f}"],
+            ["LAJES",   f"{t['lajes']['concreto']:.2f}",   f"{t['lajes']['formas']:.2f}"],
+            ["TOTAL",   f"{t['total']['concreto']:.2f}",   f"{t['total']['formas']:.2f}"],
+        ]
+        y_cursor = _desenhar_tabela(msp, f"PAVIMENTO: {pav['nome']}", cabecalhos, linhas_dados, 0, y_cursor)
 
     caminho = os.path.join(pasta_saida, f"{nome_base}.dxf")
     doc.saveas(caminho)
@@ -389,10 +364,15 @@ def exportar_pdf(pavimentos: list[dict], edificio_nome: str, pasta_saida: str, n
         fontSize=13, textColor=COR_LARANJA_ESCURO,
         fontName="Helvetica-Bold", spaceAfter=3 * mm, alignment=TA_LEFT,
     )
+    estilo_subtitulo_pav = ParagraphStyle(
+        "subtitulo_pav", parent=styles["Normal"],
+        fontSize=10, textColor=COR_LARANJA_ESCURO,
+        fontName="Helvetica-Bold", spaceAfter=2 * mm, spaceBefore=5 * mm, alignment=TA_LEFT,
+    )
     estilo_header = ParagraphStyle(
         "header_cell", parent=styles["Normal"],
-        fontSize=7, textColor=colors.white, fontName="Helvetica-Bold",
-        alignment=TA_CENTER, leading=9,
+        fontSize=8, textColor=colors.white, fontName="Helvetica-Bold",
+        alignment=TA_CENTER, leading=10,
     )
     estilo_dados = ParagraphStyle(
         "dados_cell", parent=styles["Normal"],
@@ -430,92 +410,43 @@ def exportar_pdf(pavimentos: list[dict], edificio_nome: str, pasta_saida: str, n
     story.append(HRFlowable(width="100%", thickness=2, color=COR_LARANJA_ESCURO,
                              spaceAfter=6 * mm, spaceBefore=4 * mm))
 
-    # Multi-pavimento summary table
-    # 9 cols: PAVIMENTO | VIGA C | VIGA F | PILAR C | PILAR F | LAJE C | LAJE F | TOT C | TOT F
-    col_w = [32 * mm] + [17.25 * mm] * 8  # 32 + 138 = 170mm
+    story.append(Paragraph("RESUMO DE QUANTITATIVOS", estilo_titulo_tabela))
+
+    # 3 cols: ELEMENTO | Concreto (m³) | Formas (m²)
+    col_w = [50 * mm, 60 * mm, 60 * mm]
 
     H = estilo_header
     D = estilo_dados
     T = estilo_total
 
-    header_row0 = [
-        Paragraph("PAVIMENTO", H),
-        Paragraph("VIGAS", H), "",
-        Paragraph("PILARES", H), "",
-        Paragraph("LAJES", H), "",
-        Paragraph("TOTAL", H), "",
-    ]
-    header_row1 = [
-        "",
-        Paragraph("Conc.<br/>(m³)", H), Paragraph("Form.<br/>(m²)", H),
-        Paragraph("Conc.<br/>(m³)", H), Paragraph("Form.<br/>(m²)", H),
-        Paragraph("Conc.<br/>(m³)", H), Paragraph("Form.<br/>(m²)", H),
-        Paragraph("Conc.<br/>(m³)", H), Paragraph("Form.<br/>(m²)", H),
-    ]
-
-    tabela_dados = [header_row0, header_row1]
-
-    acc = {"vc": 0.0, "vf": 0.0, "pc": 0.0, "pf": 0.0, "lc": 0.0, "lf": 0.0}
+    estilo_tabela_pav = TableStyle([
+        ("BACKGROUND",   (0, 0), (-1, 0), COR_LARANJA_ESCURO),
+        ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
+        ("ALIGN",        (1, 0), (-1, -1), "CENTER"),
+        ("BACKGROUND",   (0, 2), (-1, 2),  COR_CINZA_LINHA),
+        ("BACKGROUND",   (0, -1), (-1, -1), COR_LARANJA_CLARO),
+        ("GRID",         (0, 0), (-1, -1), 0.5, COR_LARANJA_MEDIO),
+        ("LINEBELOW",    (0, 0), (-1, 0),  1.5, COR_LARANJA_ESCURO),
+        ("TOPPADDING",   (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING",(0, 0), (-1, -1), 4),
+    ])
 
     for pav in pavimentos:
         t = _totais_quant(pav["quantitativos"])
-        acc["vc"] += t["vigas"]["concreto"];   acc["vf"] += t["vigas"]["formas"]
-        acc["pc"] += t["pilares"]["concreto"]; acc["pf"] += t["pilares"]["formas"]
-        acc["lc"] += t["lajes"]["concreto"];   acc["lf"] += t["lajes"]["formas"]
-        tabela_dados.append([
-            Paragraph(pav["nome"], D),
-            Paragraph(f"{t['vigas']['concreto']:.2f}", D),   Paragraph(f"{t['vigas']['formas']:.2f}", D),
-            Paragraph(f"{t['pilares']['concreto']:.2f}", D), Paragraph(f"{t['pilares']['formas']:.2f}", D),
-            Paragraph(f"{t['lajes']['concreto']:.2f}", D),   Paragraph(f"{t['lajes']['formas']:.2f}", D),
-            Paragraph(f"{t['total']['concreto']:.2f}", D),   Paragraph(f"{t['total']['formas']:.2f}", D),
-        ])
 
-    tc = acc["vc"] + acc["pc"] + acc["lc"]
-    tf = acc["vf"] + acc["pf"] + acc["lf"]
-    tabela_dados.append([
-        Paragraph("TOTAL", T),
-        Paragraph(f"{acc['vc']:.2f}", T), Paragraph(f"{acc['vf']:.2f}", T),
-        Paragraph(f"{acc['pc']:.2f}", T), Paragraph(f"{acc['pf']:.2f}", T),
-        Paragraph(f"{acc['lc']:.2f}", T), Paragraph(f"{acc['lf']:.2f}", T),
-        Paragraph(f"{tc:.2f}", T),        Paragraph(f"{tf:.2f}", T),
-    ])
+        story.append(Paragraph(pav["nome"], estilo_subtitulo_pav))
 
-    n_linhas  = len(tabela_dados)
-    idx_total = n_linhas - 1
+        tabela_dados = [
+            [Paragraph("ELEMENTO", H),  Paragraph("Concreto (m³)", H), Paragraph("Formas (m²)", H)],
+            [Paragraph("VIGAS", D),     Paragraph(f"{t['vigas']['concreto']:.2f}", D),   Paragraph(f"{t['vigas']['formas']:.2f}", D)],
+            [Paragraph("PILARES", D),   Paragraph(f"{t['pilares']['concreto']:.2f}", D), Paragraph(f"{t['pilares']['formas']:.2f}", D)],
+            [Paragraph("LAJES", D),     Paragraph(f"{t['lajes']['concreto']:.2f}", D),   Paragraph(f"{t['lajes']['formas']:.2f}", D)],
+            [Paragraph("TOTAL", T),     Paragraph(f"{t['total']['concreto']:.2f}", T),   Paragraph(f"{t['total']['formas']:.2f}", T)],
+        ]
 
-    row_bg = []
-    for i in range(2, idx_total):
-        bg = COR_CINZA_LINHA if i % 2 == 0 else colors.white
-        row_bg.append(("BACKGROUND", (0, i), (-1, i), bg))
-
-    estilo_tabela = TableStyle([
-        # Spans: PAVIMENTO spans rows 0-1; each type group spans 2 cols in row 0
-        ("SPAN", (0, 0), (0, 1)),
-        ("SPAN", (1, 0), (2, 0)),
-        ("SPAN", (3, 0), (4, 0)),
-        ("SPAN", (5, 0), (6, 0)),
-        ("SPAN", (7, 0), (8, 0)),
-        # Header
-        ("BACKGROUND", (0, 0), (-1, 1),          COR_LARANJA_ESCURO),
-        ("VALIGN",     (0, 0), (-1, 1),          "MIDDLE"),
-        # Data
-        ("ALIGN",      (0, 2), (-1, -1),         "CENTER"),
-        ("VALIGN",     (0, 2), (-1, -1),         "MIDDLE"),
-        # Total row
-        ("BACKGROUND", (0, idx_total), (-1, idx_total), COR_LARANJA_CLARO),
-        # Grid
-        ("GRID",         (0, 0), (-1, -1), 0.5, COR_LARANJA_MEDIO),
-        ("LINEBELOW",    (0, 1), (-1, 1),  1.5, COR_LARANJA_ESCURO),
-        ("TOPPADDING",   (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 4),
-        *row_bg,
-    ])
-
-    tabela = Table(tabela_dados, colWidths=col_w, repeatRows=2)
-    tabela.setStyle(estilo_tabela)
-
-    story.append(Paragraph("RESUMO DE QUANTITATIVOS", estilo_titulo_tabela))
-    story.append(tabela)
+        tabela = Table(tabela_dados, colWidths=col_w)
+        tabela.setStyle(estilo_tabela_pav)
+        story.append(tabela)
 
     doc.build(story)
     print(f"  -> {caminho}")
