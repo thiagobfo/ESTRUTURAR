@@ -67,14 +67,14 @@ _PAT_VIGA = re.compile(
 _PAT_PILAR = re.compile(
     r"^\s+(P\w+)\s+" + r"\s+".join([_NUM] * 4) + r"\s*$"
 )
-# Laje: pelo menos 3 colunas numéricas (pode ter texto após)
+# Laje: 3 colunas numéricas + resto da linha (H no resto indica nervurada)
 _PAT_LAJE = re.compile(
-    r"^\s+(L\w+)\s+" + r"\s+".join([_NUM] * 3)
+    r"^\s+(L\w+)\s+" + r"\s+".join([_NUM] * 3) + r"(.*)"
 )
 
 
 def extrair_quantitativos(linhas: list[str]) -> dict:
-    vigas, pilares, lajes = [], [], []
+    vigas, pilares, lajes_macicas, lajes_nervuradas = [], [], [], []
 
     for linha in linhas:
         m = _PAT_VIGA.match(linha)
@@ -102,14 +102,18 @@ def extrair_quantitativos(linhas: list[str]) -> dict:
 
         m = _PAT_LAJE.match(linha)
         if m:
-            lajes.append({
+            laje = {
                 "elemento":           m.group(1),
                 "area_estruturada_m2": float(m.group(2)),
                 "area_formas_m2":      float(m.group(3)),
                 "vol_concreto_m3":     float(m.group(4)),
-            })
+            }
+            if re.search(r'\bH\b', m.group(5)):
+                lajes_nervuradas.append(laje)
+            else:
+                lajes_macicas.append(laje)
 
-    return {"vigas": vigas, "pilares": pilares, "lajes": lajes}
+    return {"vigas": vigas, "pilares": pilares, "lajes_macicas": lajes_macicas, "lajes_nervuradas": lajes_nervuradas}
 
 
 # ---------------------------------------------------------------------------
@@ -172,17 +176,20 @@ def extrair_lajes_nervuradas(linhas: list[str]) -> list[dict]:
 
 def _totais_quant(quant: dict) -> dict:
     """Returns per-type and total concrete/forms sums for one pavimento's quantitativos."""
-    v_c = sum(e["vol_concreto_m3"] for e in quant["vigas"])
-    v_f = sum(e["area_formas_m2"]  for e in quant["vigas"])
-    p_c = sum(e["vol_concreto_m3"] for e in quant["pilares"])
-    p_f = sum(e["area_formas_m2"]  for e in quant["pilares"])
-    l_c = sum(e["vol_concreto_m3"] for e in quant["lajes"])
-    l_f = sum(e["area_formas_m2"]  for e in quant["lajes"])
+    v_c  = sum(e["vol_concreto_m3"] for e in quant["vigas"])
+    v_f  = sum(e["area_formas_m2"]  for e in quant["vigas"])
+    p_c  = sum(e["vol_concreto_m3"] for e in quant["pilares"])
+    p_f  = sum(e["area_formas_m2"]  for e in quant["pilares"])
+    lm_c = sum(e["vol_concreto_m3"] for e in quant["lajes_macicas"])
+    lm_f = sum(e["area_formas_m2"]  for e in quant["lajes_macicas"])
+    ln_c = sum(e["vol_concreto_m3"] for e in quant["lajes_nervuradas"])
+    ln_f = sum(e["area_formas_m2"]  for e in quant["lajes_nervuradas"])
     return {
-        "vigas":   {"concreto": v_c, "formas": v_f},
-        "pilares": {"concreto": p_c, "formas": p_f},
-        "lajes":   {"concreto": l_c, "formas": l_f},
-        "total":   {"concreto": v_c + p_c + l_c, "formas": v_f + p_f + l_f},
+        "vigas":            {"concreto": v_c,  "formas": v_f},
+        "pilares":          {"concreto": p_c,  "formas": p_f},
+        "lajes_macicas":    {"concreto": lm_c, "formas": lm_f},
+        "lajes_nervuradas": {"concreto": ln_c, "formas": ln_f},
+        "total":            {"concreto": v_c + p_c + lm_c + ln_c, "formas": v_f + p_f + lm_f + ln_f},
     }
 
 
@@ -319,10 +326,11 @@ def exportar_dxf(pavimentos: list[dict], edificio_nome: str, pasta_saida: str, n
     for pav in pavimentos:
         t = _totais_quant(pav["quantitativos"])
         linhas_dados = [
-            ["VIGAS",   f"{t['vigas']['concreto']:.2f}",   f"{t['vigas']['formas']:.2f}"],
-            ["PILARES", f"{t['pilares']['concreto']:.2f}", f"{t['pilares']['formas']:.2f}"],
-            ["LAJES",   f"{t['lajes']['concreto']:.2f}",   f"{t['lajes']['formas']:.2f}"],
-            ["TOTAL",   f"{t['total']['concreto']:.2f}",   f"{t['total']['formas']:.2f}"],
+            ["VIGAS",              f"{t['vigas']['concreto']:.2f}",            f"{t['vigas']['formas']:.2f}"],
+            ["PILARES",            f"{t['pilares']['concreto']:.2f}",          f"{t['pilares']['formas']:.2f}"],
+            ["LAJES MACIÇAS",      f"{t['lajes_macicas']['concreto']:.2f}",    f"{t['lajes_macicas']['formas']:.2f}"],
+            ["LAJES NERVURADAS",   f"{t['lajes_nervuradas']['concreto']:.2f}", f"{t['lajes_nervuradas']['formas']:.2f}"],
+            ["TOTAL",              f"{t['total']['concreto']:.2f}",            f"{t['total']['formas']:.2f}"],
         ]
         y_cursor = _desenhar_tabela(msp, f"PAVIMENTO: {pav['nome']}", cabecalhos, linhas_dados, 0, y_cursor)
 
@@ -420,15 +428,16 @@ def exportar_pdf(pavimentos: list[dict], edificio_nome: str, pasta_saida: str, n
     T = estilo_total
 
     estilo_tabela_pav = TableStyle([
-        ("BACKGROUND",   (0, 0), (-1, 0), COR_LARANJA_ESCURO),
-        ("VALIGN",       (0, 0), (-1, -1), "MIDDLE"),
-        ("ALIGN",        (1, 0), (-1, -1), "CENTER"),
-        ("BACKGROUND",   (0, 2), (-1, 2),  COR_CINZA_LINHA),
-        ("BACKGROUND",   (0, -1), (-1, -1), COR_LARANJA_CLARO),
-        ("GRID",         (0, 0), (-1, -1), 0.5, COR_LARANJA_MEDIO),
-        ("LINEBELOW",    (0, 0), (-1, 0),  1.5, COR_LARANJA_ESCURO),
-        ("TOPPADDING",   (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING",(0, 0), (-1, -1), 4),
+        ("BACKGROUND",   (0, 0), (-1, 0),   COR_LARANJA_ESCURO),
+        ("VALIGN",       (0, 0), (-1, -1),  "MIDDLE"),
+        ("ALIGN",        (1, 0), (-1, -1),  "CENTER"),
+        ("BACKGROUND",   (0, 2), (-1, 2),   COR_CINZA_LINHA),   # PILARES
+        ("BACKGROUND",   (0, 4), (-1, 4),   COR_CINZA_LINHA),   # LAJES NERVURADAS
+        ("BACKGROUND",   (0, -1), (-1, -1), COR_LARANJA_CLARO), # TOTAL
+        ("GRID",         (0, 0), (-1, -1),  0.5, COR_LARANJA_MEDIO),
+        ("LINEBELOW",    (0, 0), (-1, 0),   1.5, COR_LARANJA_ESCURO),
+        ("TOPPADDING",   (0, 0), (-1, -1),  4),
+        ("BOTTOMPADDING",(0, 0), (-1, -1),  4),
     ])
 
     for pav in pavimentos:
@@ -437,11 +446,12 @@ def exportar_pdf(pavimentos: list[dict], edificio_nome: str, pasta_saida: str, n
         story.append(Paragraph(pav["nome"], estilo_subtitulo_pav))
 
         tabela_dados = [
-            [Paragraph("ELEMENTO", H),  Paragraph("Concreto (m³)", H), Paragraph("Formas (m²)", H)],
-            [Paragraph("VIGAS", D),     Paragraph(f"{t['vigas']['concreto']:.2f}", D),   Paragraph(f"{t['vigas']['formas']:.2f}", D)],
-            [Paragraph("PILARES", D),   Paragraph(f"{t['pilares']['concreto']:.2f}", D), Paragraph(f"{t['pilares']['formas']:.2f}", D)],
-            [Paragraph("LAJES", D),     Paragraph(f"{t['lajes']['concreto']:.2f}", D),   Paragraph(f"{t['lajes']['formas']:.2f}", D)],
-            [Paragraph("TOTAL", T),     Paragraph(f"{t['total']['concreto']:.2f}", T),   Paragraph(f"{t['total']['formas']:.2f}", T)],
+            [Paragraph("ELEMENTO", H),           Paragraph("Concreto (m³)", H),                        Paragraph("Formas (m²)", H)],
+            [Paragraph("VIGAS", D),              Paragraph(f"{t['vigas']['concreto']:.2f}", D),         Paragraph(f"{t['vigas']['formas']:.2f}", D)],
+            [Paragraph("PILARES", D),            Paragraph(f"{t['pilares']['concreto']:.2f}", D),       Paragraph(f"{t['pilares']['formas']:.2f}", D)],
+            [Paragraph("LAJES MACIÇAS", D),      Paragraph(f"{t['lajes_macicas']['concreto']:.2f}", D), Paragraph(f"{t['lajes_macicas']['formas']:.2f}", D)],
+            [Paragraph("LAJES NERVURADAS", D),   Paragraph(f"{t['lajes_nervuradas']['concreto']:.2f}", D), Paragraph(f"{t['lajes_nervuradas']['formas']:.2f}", D)],
+            [Paragraph("TOTAL", T),              Paragraph(f"{t['total']['concreto']:.2f}", T),         Paragraph(f"{t['total']['formas']:.2f}", T)],
         ]
 
         tabela = Table(tabela_dados, colWidths=col_w)
@@ -483,9 +493,10 @@ def main():
         print(f"  {k}: {v}")
 
     print(f"\nQuantitativos:")
-    print(f"  Vigas:   {len(quant['vigas'])} elementos")
-    print(f"  Pilares: {len(quant['pilares'])} elementos")
-    print(f"  Lajes:   {len(quant['lajes'])} elementos")
+    print(f"  Vigas:              {len(quant['vigas'])} elementos")
+    print(f"  Pilares:            {len(quant['pilares'])} elementos")
+    print(f"  Lajes Maciças:      {len(quant['lajes_macicas'])} elementos")
+    print(f"  Lajes Nervuradas:   {len(quant['lajes_nervuradas'])} elementos")
 
     pasta_saida = os.path.join(os.path.dirname(__file__), "output")
     nome_base   = os.path.splitext(os.path.basename(caminho_lst))[0]
