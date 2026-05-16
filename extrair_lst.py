@@ -224,8 +224,13 @@ def _desenhar_tabela(
     linhas_dados: list[list[str]],
     x0: float,
     y0: float,
+    larguras_min: list[float] | None = None,
 ) -> float:
     larguras = _largura_colunas(cabecalhos, linhas_dados)
+    if larguras_min:
+        for i, m in enumerate(larguras_min):
+            if m and i < len(larguras) and larguras[i] < m:
+                larguras[i] = m
     largura_total = sum(larguras)
     y = y0
 
@@ -332,7 +337,7 @@ def exportar_dxf(pavimentos: list[dict], edificio_nome: str, pasta_saida: str, n
             ["LAJES NERVURADAS",   f"{t['lajes_nervuradas']['concreto']:.2f}", f"{t['lajes_nervuradas']['formas']:.2f}"],
             ["TOTAL",              f"{t['total']['concreto']:.2f}",            f"{t['total']['formas']:.2f}"],
         ]
-        y_cursor = _desenhar_tabela(msp, f"PAVIMENTO: {pav['nome']}", cabecalhos, linhas_dados, 0, y_cursor)
+        y_cursor = _desenhar_tabela(msp, f"PAVIMENTO: {pav['nome']}", cabecalhos, linhas_dados, 0, y_cursor, larguras_min=[35, 0, 0])
 
     caminho = os.path.join(pasta_saida, f"{nome_base}.dxf")
     doc.saveas(caminho)
