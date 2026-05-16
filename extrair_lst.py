@@ -251,10 +251,15 @@ def _desenhar_tabela(
             ],
             dxfattribs={"color": _COR_HEADER, "layer": "3"},
         )
+        cx = x + larguras[i] / 2
+        cy = y - _ALT_LINHA / 2
         msp.add_text(
             cab,
             dxfattribs={
-                "insert": (x + _ESP_COL, y - _ALT_LINHA + (_ALT_LINHA - _ALT_TEXTO) / 2),
+                "insert":      (cx, cy),
+                "align_point": (cx, cy),
+                "halign": 1,
+                "valign": 2,
                 "height": _ALT_TEXTO,
                 "color": 0,
                 "layer": "8",
@@ -269,10 +274,15 @@ def _desenhar_tabela(
         is_total = str(linha[0]).upper() == "TOTAL"
         x = x0
         for i, cel in enumerate(linha):
+            cx = x + larguras[i] / 2
+            cy = y - _ALT_LINHA / 2
             msp.add_text(
                 cel,
                 dxfattribs={
-                    "insert": (x + _ESP_COL, y - _ALT_LINHA + (_ALT_LINHA - _ALT_TEXTO) / 2),
+                    "insert":      (cx, cy),
+                    "align_point": (cx, cy),
+                    "halign": 1,
+                    "valign": 2,
                     "height": _ALT_TEXTO * (1.1 if is_total else 1.0),
                     "color": _COR_TITULO if is_total else _COR_TEXTO,
                     "layer": "8",
